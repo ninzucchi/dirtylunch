@@ -21,9 +21,6 @@ public:
     
     void enable3D();
     void disable3D();
-	
-    void keyPressed  (int key);
-    void keyReleased(int key);
     
     void beginGestureDetection();
     void endGestureDetection();
@@ -32,8 +29,6 @@ public:
     enum direction { UP, DOWN };
 
     int performSwipeAnalysis();
-    float getGestureSlope();
-    float getGestureVelocity();
     ofVec2f getGestureVector();
     
     void simulateKey(int key);

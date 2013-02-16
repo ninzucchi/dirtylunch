@@ -1,4 +1,5 @@
 #include "testApp.h"
+// #define DEBUG
 
 //--------------------------------------------------------------
 void testApp::setup(){
@@ -34,7 +35,6 @@ void testApp::update(){
     
     if( leap.isFrameNew()) {
         if( hands.size()) {
-
             int nFingers = hands[0].fingers().count();
             
             // setMappingX(float minX, float maxX, float outputMinX, float outputMaxX)
@@ -65,25 +65,23 @@ void testApp::update(){
                     // store fingers seen this frame for drawing
                     fingersFound.push_back(finger.id());
                     
-                    if (j == 0 && i == 0 && detectingGestures ){
-                        gesturePositions.push_front(pt);
-                        // cout << gesturePositions.at(0) << endl;
-                        if (gesturePositions.size() > gestureSamples){
-                            gesturePositions.pop_back();
+                    // store first finger for gesture detection
+                    if (j == 0 && i == 0){
+                        if (pt.z < 0){
+                            if (!detectingGestures) beginGestureDetection();
+                            gesturePositions.push_front(pt);
+                            if (gesturePositions.size() > gestureSamples){
+                                gesturePositions.pop_back();
+                            }
                         }
-                    }
-                    
-                    // store point for mouse interpolation                    
-                    if (i == 0 && j == 0){
-                        ofLog() << "Raw Point  : " << pt_raw.z << ", " << pt_raw.y;
-                        ofLog() << "Normalized : " << pt.x << ", " << pt.y;
-                        cursorPos = pt;
+                        else {
+                            if (detectingGestures) endGestureDetection();
+                        }
                     }
                 }
             }
             if (detectingGestures){
                 switch( performSwipeAnalysis()){
-                        
                         // up : 126
                         // down : 125
                         // next (j) : 38
@@ -104,6 +102,7 @@ void testApp::update(){
                         }
                         else if (nFingers >= 3){
                             simulateKey(35);
+                            simulateKey(38);
                         }
                         break;
                         
@@ -119,6 +118,7 @@ void testApp::update(){
                         }
                         else if (nFingers >= 3){
                             simulateKey(45);
+                            simulateKey(38);
                         }
                         break;
                         
@@ -133,7 +133,7 @@ void testApp::update(){
             }
         }
         else {
-            reset();
+            if(detectingGestures) endGestureDetection();
         }
     }
     leap.markFrameAsOld();
@@ -141,6 +141,8 @@ void testApp::update(){
 
 //--------------------------------------------------------------
 void testApp::reset(){
+    cout << "reset" << endl;
+    gesturePositions.clear();
     gestureVelocity = 0;
     gestureVector.set(0,0);
     gestureSlope = 0;
@@ -150,8 +152,6 @@ void testApp::reset(){
 int testApp::performSwipeAnalysis(){
     int SWIPE_THRESHOLD = 10;
     
-    float slope = getGestureSlope();
-    float velocity = getGestureVelocity();
     ofVec2f vector = getGestureVector();
     
     if (vector.length() > SWIPE_THRESHOLD){
@@ -181,30 +181,9 @@ int testApp::performSwipeAnalysis(){
 }
 
 //--------------------------------------------------------------
-float testApp::getGestureSlope(){
-    if (gesturePositions.size()){
-        float xSum = 0;
-        float xSquaredSum = 0;
-        float ySum = 0;
-        float ySquaredSum = 0;
-        float xySum = 0;
-        int n = gesturePositions.size();
-        
-        for (int i = 0; i < n; i++ ){
-            ofPoint p = gesturePositions.at(i);
-            xSum += p.x;
-            xSquaredSum += pow(p.x, 2);
-            ySum += p.y;
-            ySquaredSum += pow(p.y, 2);
-            xySum += p.x * p.y;
-        }
-        float slope = (n * xySum - xSum * ySum) / (n * xSquaredSum - pow(xSum, 2) );
-        //cout << "slope : " << slope << endl;
-    }
-}
-
-float testApp::getGestureVelocity(){
+ofVec2f testApp::getGestureVector(){
     int n = gesturePositions.size();
+    cout << n << endl;
     ofVec3f totalVector = ofVec3f();
 
     for (int i = 0; i < n; i++ ){
@@ -212,83 +191,39 @@ float testApp::getGestureVelocity(){
             ofVec3f p1 = ofVec3f(gesturePositions.at(i));
             ofVec3f p2 = ofVec3f(gesturePositions.at(i + 1));
             ofVec3f pointToPointVector = p1 - p2;
-            totalVector += pointToPointVector;
+            totalVector += pointToPointVector;                  // totalVector is sum of differences betwen all points (not completely accurate)
         }
     }
     totalVector /= n;
     gestureVelocity = totalVector.length();
     gestureVector = ofVec2f(totalVector.x, totalVector.y);
-    // cout << "vec.x : " << gestureVector.x << " | vec.y : " << gestureVector.y << " | len : " << gestureVector.length() << endl;
 
-    //cout << "veloc : " << gestureVelocity << endl;
-}
-
-ofVec2f testApp::getGestureVector(){
     return gestureVector;
 }
 
 //--------------------------------------------------------------
-void testApp::positionCursor(){
-    if (fingersFound.size()){
-        (glutGet(GLUT_WINDOW_X) + cursorPos.x, glutGet(GLUT_WINDOW_Y) - cursorPos.y);
-    }
-}
-
-//--------------------------------------------------------------
 void testApp::beginGestureDetection(){
-    ofLog() << "Begin Gesture Detection" << endl;
     detectingGestures = true;
-    gesturePositions.clear();
+    reset();
 }
 
 void testApp::endGestureDetection(){
-    ofLog() << "End Gesture Detection" << endl;
     detectingGestures = false;
-    gesturePositions.clear();
+    reset();
 }
 
 //--------------------------------------------------------------
 void testApp::draw(){
     drawBackground();
     
+#ifdef DEBUG
     enable3D();
     drawPlane();
     drawFingerStrips();
-    
     disable3D();
+#endif
+    
     drawGestureData();
-    positionCursor();
-}
-
-//--------------------------------------------------------------
-void testApp::enable3D(){
-    glEnable(GL_DEPTH_TEST);
-    glEnable(GL_NORMALIZE);
-    ofEnableLighting();
-    l1.enable();
-    l2.enable();
-    m1.begin();
-    cam.begin();
-}
-
-//--------------------------------------------------------------
-void testApp::disable3D(){
-    glDisable(GL_DEPTH_TEST);
-    glDisable(GL_NORMALIZE);
-    ofDisableLighting();
-    l1.disable();
-    l2.disable();
-    m1.end();
-    cam.end();
-}
-
-//--------------------------------------------------------------
-void testApp::drawPlane(){
-    ofPushMatrix();
-    ofRotate(90, 0, 0, 1);
-    ofSetColor(50);
-    ofDrawGridPlane(800, 15, false);
-	ofPopMatrix();
 }
 
 //--------------------------------------------------------------
@@ -337,23 +272,14 @@ void testApp::drawGestureData(){
     ofVec2f scaledVectorPos = ofVec2f(gestureVector.x, -gestureVector.y) * 2;
     ofCircle(scaledVectorPos, 5);
     ofLine(scaledVectorPos, ofVec2f(0,0));
+    
+    //-------- active graphic ---------//
 
+    ofSetColor(activeColor);
+    ofTranslate(velocityChartWidth + vectorChartWidth + spacer, 0);                // Draw background
+    if(detectingGestures) ofCircle(0,0,15);
+    
     ofPopMatrix();
-}
-
-//--------------------------------------------------------------
-void testApp::drawFingerStrips(){
-	for(int i = 0; i < fingersFound.size(); i++){
-		ofxStrip strip;
-		int id = fingersFound[i];
-		
-		ofPolyline & polyline = fingerTrails[id];
-        strip.generate(polyline.getVertices(), 5, ofPoint(0, 0.5, 0.5) );
-		
-		ofSetColor(255 - id * 15, 0, id * 25);
-		strip.getMesh().draw();
-	}
-    m1.end();
 }
 
 //--------------------------------------------------------------
@@ -395,10 +321,10 @@ void testApp::simulateScroll(direction dir){
     
     switch (dir){
         case DOWN:
-            scrollIncrement = -25;
+            scrollIncrement = -100;
             break;
         case UP:
-            scrollIncrement = 25;
+            scrollIncrement = 100;
             break;
     }
     
@@ -414,29 +340,58 @@ void testApp::simulateScroll(direction dir){
 }
 
 //--------------------------------------------------------------
-void testApp::keyPressed(int key){
-    cout << "key pressed" << key << endl;
-    
-    switch (key){
-    case '1':
-        //simulateClick(DOWN);
-            for (int i = 0; i < 15; i++){
-                ofSleepMillis(15);
-                simulateScroll(DOWN);
-            }
-        break;
-    case ' ':
-        if(!detectingGestures) beginGestureDetection();
-        else endGestureDetection();
-        break;
-    }
+//---- 3D DEBUG DRAW -------------------------------------------
+//--------------------------------------------------------------
+
+void testApp::enable3D(){
+    glEnable(GL_DEPTH_TEST);
+    glEnable(GL_NORMALIZE);
+    ofEnableLighting();
+    l1.enable();
+    l2.enable();
+    m1.begin();
+    cam.begin();
 }
 
 //--------------------------------------------------------------
-void testApp::keyReleased(int key){
-    switch (key){
-    case '1':
-        // simulateClick(UP);
-        break;
+void testApp::disable3D(){
+    glDisable(GL_DEPTH_TEST);
+    glDisable(GL_NORMALIZE);
+    ofDisableLighting();
+    l1.disable();
+    l2.disable();
+    m1.end();
+    cam.end();
+}
+
+//--------------------------------------------------------------
+void testApp::drawPlane(){
+    ofPushMatrix();
+    ofRotate(90, 0, 0, 1);
+    ofSetColor(50);
+    ofDrawGridPlane(800, 15, false);
+    ofPopMatrix();
+}
+
+//--------------------------------------------------------------
+void testApp::drawFingerStrips(){
+	for(int i = 0; i < fingersFound.size(); i++){
+		ofxStrip strip;
+		int id = fingersFound[i];
+		
+		ofPolyline & polyline = fingerTrails[id];
+        strip.generate(polyline.getVertices(), 5, ofPoint(0, 0.5, 0.5) );
+		
+		ofSetColor(255 - id * 15, 0, id * 25);
+		strip.getMesh().draw();
+	}
+    m1.end();
+}
+
+/* --------------------------------------------------------------
+void testApp::positionCursor(){
+    if (fingersFound.size()){
+        (glutGet(GLUT_WINDOW_X) + cursorPos.x, glutGet(GLUT_WINDOW_Y) - cursorPos.y);
     }
 }
+*/
